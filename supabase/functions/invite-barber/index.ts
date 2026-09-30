@@ -46,7 +46,7 @@ Deno.serve(async (request) => {
   if (invitationRecordError) return json({ error: 'Could not prepare the barber invitation' }, 500)
 
   const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${siteUrl}/login/barber`,
+    redirectTo: `${siteUrl}/barber/accept-invitation`,
     data: { servicehub_role: 'barber', business_id: payload.businessId, barber_id: barber.id, full_name: barber.display_name },
   })
   if (inviteError) {
