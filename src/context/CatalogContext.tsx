@@ -13,10 +13,29 @@ type CatalogContextValue = {
   saveService: (service: Omit<ServiceRecord, 'id'> & { id?: string }) => Promise<ServiceRecord>
   archiveService: (id: string) => Promise<void>
   addBarber: (barber: Omit<Barber, 'id' | 'appointmentsToday'>, email?: string) => Promise<Barber & { accountLink?: 'invited' | 'existing' }>
+  inviteBarber: (barberId: string, email: string) => Promise<'invited' | 'existing'>
   setBarberActive: (id: string, active: boolean) => Promise<void>
 }
 const CatalogContext = createContext<CatalogContextValue | null>(null)
 const demoServices: ServiceRecord[] = appointmentServices.map((item) => ({ ...item, id: item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }))
+
+async function getFunctionErrorMessage(error: { message: string; context?: unknown }) {
+  const response = error.context
+  if (response instanceof Response) {
+    try {
+      const body: unknown = await response.clone().json()
+      if (body && typeof body === 'object') {
+        const details = body as { error?: unknown; message?: unknown }
+        if (typeof details.error === 'string' && details.error.trim()) return details.error
+        if (typeof details.message === 'string' && details.message.trim()) return details.message
+      }
+    } catch {
+      // Fall back to the SDK message when the function response isn't JSON.
+    }
+    return `${error.message} (HTTP ${response.status})`
+  }
+  return error.message
+}
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
   const { configured, business } = useAuth()
@@ -31,7 +50,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     setLoading(true); setError('')
     const [serviceResult, barberResult, assignmentResult] = await Promise.all([
       supabase.from('services').select('id,name,description,duration_minutes,price_ngn,is_active').eq('business_id', business.id).order('name'),
-      supabase.from('barbers').select('id,display_name,phone,is_active').eq('business_id', business.id).order('display_name'),
+      supabase.from('barbers').select('id,display_name,phone,is_active,user_id').eq('business_id', business.id).order('display_name'),
       supabase.from('barber_services').select('barber_id,service_id').eq('business_id', business.id),
     ])
     const fetchError = serviceResult.error ?? barberResult.error ?? assignmentResult.error
@@ -39,7 +58,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     const serviceRows = serviceResult.data ?? []
     const serviceNames = new Map(serviceRows.map((row) => [row.id, row.name]))
     setServices(serviceRows.filter((row) => row.is_active).map((row) => ({ id: row.id, name: row.name, description: row.description ?? '', duration: row.duration_minutes, price: Number(row.price_ngn) })))
-    setBarbers((barberResult.data ?? []).map((row) => ({ id: row.id, name: row.display_name, phone: row.phone, active: row.is_active, appointmentsToday: 0, services: (assignmentResult.data ?? []).filter((assignment) => assignment.barber_id === row.id).map((assignment) => serviceNames.get(assignment.service_id)).filter((name): name is string => Boolean(name)) })))
+    setBarbers((barberResult.data ?? []).map((row) => ({ id: row.id, name: row.display_name, phone: row.phone, active: row.is_active, accountLinked: Boolean(row.user_id), appointmentsToday: 0, services: (assignmentResult.data ?? []).filter((assignment) => assignment.barber_id === row.id).map((assignment) => serviceNames.get(assignment.service_id)).filter((name): name is string => Boolean(name)) })))
     setLoading(false)
   }, [business, configured])
   useEffect(() => { void refresh() }, [refresh])
@@ -90,10 +109,19 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       let accountLink: 'invited' | 'existing' = 'invited'
       if (email) {
         const { data: inviteResult, error: inviteError } = await supabase.functions.invoke('invite-barber', { body: { businessId: business.id, barberId: data.id, email } })
-        if (inviteError) { setError(`Barber saved, but the invite failed: ${inviteError.message}`); throw inviteError }
+        if (inviteError) {
+          const detail = await getFunctionErrorMessage(inviteError)
+          throw new Error(`Barber saved, but the invite failed: ${detail}`)
+        }
         if (inviteResult?.existingAccount) accountLink = 'existing'
       }
       return { ...created, accountLink }
+    },
+    inviteBarber: async (barberId, email) => {
+      if (!supabase || !business) throw new Error('Shop database is not ready.')
+      const { data: inviteResult, error: inviteError } = await supabase.functions.invoke('invite-barber', { body: { businessId: business.id, barberId, email } })
+      if (inviteError) throw new Error(await getFunctionErrorMessage(inviteError))
+      return inviteResult?.existingAccount ? 'existing' : 'invited'
     },
     setBarberActive: async (id, active) => {
       if (configured) {

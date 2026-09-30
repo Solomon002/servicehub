@@ -5,6 +5,7 @@ export type Barber = {
   appointmentsToday: number
   active: boolean
   services: string[]
+  accountLinked?: boolean
 }
 
 export const startingBarbers: Barber[] = [

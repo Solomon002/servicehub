@@ -63,6 +63,19 @@ The frontend opens at `http://localhost:5173`. With no Supabase configuration, p
 5. Restart Vite, create an owner at `/signup/owner`, then add services and barbers.
 6. Inspect local confirmation email in Supabase Studio/Inbucket. Run `npx supabase functions serve invite-barber` in another terminal to test barber invitations.
 
+### Barber invitation troubleshooting (production)
+
+If a barber is saved but the invitation fails:
+
+1. Open **Supabase Dashboard → Edge Functions → `invite-barber` → Logs** and retry once from the owner account. Check the invocation at that timestamp. The function response is now shown in the Barbers page so HTTP errors can be diagnosed without the SDK's generic message.
+2. Confirm `invite-barber` is deployed to the same Supabase project used by the Vercel production build. From a logged-in Supabase CLI, deploy it with `npx supabase functions deploy invite-barber --project-ref <project-ref>`.
+3. In the function's secrets/configuration, set `SITE_URL` to the exact public Vercel origin (for example `https://servicehub.example.com`, without a trailing slash). The function uses it for invitation email redirects and CORS.
+4. In **Supabase Dashboard → Authentication → URL Configuration**, set the Site URL to the production origin and add `https://<production-domain>/barber/accept-invitation` to the allowed redirect URLs.
+5. In **Vercel → Project → Settings → Environment Variables**, verify `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` reference that same Supabase project in the Production environment. Redeploy after changing Vercel environment variables.
+6. Check **Supabase Dashboard → Authentication → SMTP Settings / Logs** if the function reports an email-delivery error. After correction, invite a new test email, open the link on the production domain, set a password, then sign in at `/login/barber`.
+
+Do not add a Supabase service-role/secret key to a `VITE_` variable or expose it in Vercel's browser environment. The invitation function uses the server-side credentials supplied by Supabase's Edge Function runtime.
+
 Each shop has a unique slug. Its public page is `/shop?shop=<slug>` and its booking page is `/book?shop=<slug>`. The root page is the ServiceHub directory.
 
 ## Verification

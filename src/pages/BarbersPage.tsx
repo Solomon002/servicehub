@@ -12,10 +12,11 @@ function initials(name: string) {
 }
 
 function BarbersPage() {
-  const { barbers, services, addBarber, setBarberActive, loading, error: catalogError } = useCatalog()
+  const { barbers, services, addBarber, inviteBarber, setBarberActive, loading, error: catalogError } = useCatalog()
   const { appointments } = useAppointments()
   const { configured, business } = useAuth()
   const [isAddFormOpen, setIsAddFormOpen] = useState(false)
+  const [invitingBarber, setInvitingBarber] = useState<(typeof barbers)[number] | null>(null)
   const [message, setMessage] = useState('')
   const [editingSchedule, setEditingSchedule] = useState<(typeof barbers)[number] | null>(null)
   const [shiftDraft, setShiftDraft] = useState<Shift[]>([])
@@ -40,6 +41,21 @@ function BarbersPage() {
     const nextStatus = !barber.active
     try { await setBarberActive(barber.id, nextStatus); setMessage(`${barber.name} marked ${nextStatus ? 'active' : 'inactive'}.`) }
     catch (caught) { setMessage(caught instanceof Error ? caught.message : 'Could not update barber.') }
+  }
+
+  async function handleInviteBarber(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!invitingBarber) return
+    const email = String(new FormData(event.currentTarget).get('email')).trim()
+    try {
+      const result = await inviteBarber(invitingBarber.id, email)
+      setMessage(result === 'existing'
+        ? `${invitingBarber.name}'s email already has a ServiceHub account. Ask them to sign in as a barber to link it to this shop.`
+        : `An invitation was sent to ${email}.`)
+      setInvitingBarber(null)
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'Could not send the invitation.')
+    }
   }
 
   async function openSchedule(barber: (typeof barbers)[number]) {
@@ -90,7 +106,7 @@ function BarbersPage() {
         </button>
       </div>
 
-      <p role="status" aria-live="polite" className="sr-only">{message}</p>
+      {message && <p role="status" aria-live="polite" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</p>}
       {catalogError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-800">Could not load the team: {catalogError}</p>}
 
       <section aria-label="Barber team" className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -132,6 +148,7 @@ function BarbersPage() {
             </div>
 
             <div className="mt-5 border-t border-stone-100 pt-4 text-right">
+              {configured && !barber.accountLinked && <button type="button" onClick={() => { setInvitingBarber(barber); setMessage('') }} className="mr-2 rounded-lg px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">Send / resend invite</button>}
               <button type="button" onClick={() => void openSchedule(barber)} className="mr-2 rounded-lg px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50">Working hours</button>
               <button
                 type="button"
@@ -187,6 +204,8 @@ function BarbersPage() {
           </section>
         </div>
       )}
+
+      {invitingBarber && <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-stone-950/40 p-4"><section role="dialog" aria-modal="true" aria-labelledby="invite-barber-title" className="my-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"><div className="flex items-start justify-between gap-4"><div><h3 id="invite-barber-title" className="text-lg font-semibold text-stone-900">Send account invitation</h3><p className="mt-1 text-sm text-stone-500">{invitingBarber.name} is already saved. Enter their account email to retry the invitation.</p></div><button type="button" aria-label="Close" onClick={() => setInvitingBarber(null)} className="grid size-8 place-items-center rounded-lg text-xl text-stone-500 hover:bg-stone-100">×</button></div><form onSubmit={handleInviteBarber} className="mt-5 space-y-4"><label className="block text-sm font-medium text-stone-700">Barber’s account email<input name="email" type="email" required autoFocus className="mt-1.5 w-full rounded-lg border border-stone-200 px-3 py-2.5 font-normal outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" /></label><p className="text-xs leading-5 text-stone-500">If this email already has a ServiceHub account, the barber can sign in and their account will be linked to this shop.</p><div className="flex justify-end gap-3 pt-2"><button type="button" onClick={() => setInvitingBarber(null)} className="rounded-lg border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">Cancel</button><button type="submit" className="rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-900">Send invitation</button></div></form></section></div>}
 
       {editingSchedule && <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-stone-950/40 p-4"><section role="dialog" aria-modal="true" aria-labelledby="barber-hours-title" className="my-auto max-h-[90dvh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl sm:p-6"><div className="flex items-start justify-between gap-4"><div><h3 id="barber-hours-title" className="text-lg font-semibold">{editingSchedule.name}’s working hours</h3><p className="mt-1 text-sm text-stone-500">A barber’s shift must fit inside the shop’s opening hours.</p></div><button type="button" aria-label="Close" onClick={() => setEditingSchedule(null)} className="grid size-8 place-items-center rounded-lg text-xl text-stone-500 hover:bg-stone-100">×</button></div>
         {scheduleLoading ? <p className="py-10 text-center text-sm text-stone-500">Loading schedule…</p> : <><div className="mt-5 space-y-2">{shiftDraft.map(shift => <div key={shift.day} className="grid items-center gap-3 rounded-lg border border-stone-100 p-3 sm:grid-cols-[100px_1fr_1fr_1fr]"><span className="text-sm font-medium">{dayNames[shift.day]}</span><select aria-label={`${dayNames[shift.day]} schedule`} value={shift.mode} onChange={event => setShiftDraft(current => current.map(item => item.day === shift.day ? { ...item, mode: event.target.value as Shift['mode'] } : item))} className="rounded-lg border border-stone-200 bg-white px-2 py-2 text-sm"><option value="shop">Shop hours</option><option value="custom">Custom shift</option><option value="off">Day off</option></select>{shift.mode === 'custom' ? <><input aria-label={`${dayNames[shift.day]} starts`} type="time" value={shift.opens} onChange={event => setShiftDraft(current => current.map(item => item.day === shift.day ? { ...item, opens: event.target.value } : item))} className="rounded-lg border border-stone-200 px-2 py-2 text-sm"/><input aria-label={`${dayNames[shift.day]} ends`} type="time" value={shift.closes} onChange={event => setShiftDraft(current => current.map(item => item.day === shift.day ? { ...item, closes: event.target.value } : item))} className="rounded-lg border border-stone-200 px-2 py-2 text-sm"/></> : <span className="text-xs text-stone-500 sm:col-span-2">{shift.mode === 'off' ? 'No appointments on this day' : 'Uses shop opening hours'}</span>}</div>)}</div><div className="mt-5 flex justify-end gap-3"><button type="button" onClick={() => setEditingSchedule(null)} className="rounded-lg border border-stone-200 px-4 py-2.5 text-sm font-semibold text-stone-700">Cancel</button><button type="button" disabled={scheduleSaving} onClick={() => void saveSchedule()} className="rounded-lg bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{scheduleSaving ? 'Saving…' : 'Save schedule'}</button></div></>}</section></div>}
