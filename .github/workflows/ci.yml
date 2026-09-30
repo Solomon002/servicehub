@@ -1,0 +1,25 @@
+name: ServiceHub checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  app-and-database:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - name: Start local Supabase
+        run: npx supabase start
+      - name: Apply migrations
+        run: npx supabase db reset
+      - name: Run database security and booking tests
+        run: npx supabase test db --local
